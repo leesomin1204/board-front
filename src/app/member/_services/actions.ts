@@ -1,6 +1,7 @@
 'use server'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
+import { revalidateTag } from 'next/cache'
 
 /**
  * 회원가입 처리
@@ -47,7 +48,6 @@ export async function processJoin(errors, formData: FormData) {
 
   // 비밀번호, 비밀번호 확인 일치 여부
   const password = params.password?.trim()
-  console.log('params', params)
   if (password && password !== params.confirmPassword?.trim()) {
     errors.confirmPassword = errors.confirmPassword ?? []
     errors.confirmPassword.push('비밀번호가 일치하지 않습니다.')
@@ -131,45 +131,45 @@ export async function processLogin(errors, formData: FormData) {
       httpOnly: true,
       path: '/',
     })
+
+    revalidateTag('loggedMember')
   } else {
     // 로그인 실패
     const json = await res.json()
     return json.messages.global ? json.messages : { global: json.messages }
   }
 
-  // 로그인 성공 시 페이지 이동 - redirectUrl이 있다면 그 주소로 이동 아니면 메인페이지(/)로 이동
-  const redirectUrl = formData.get("redirectUrl")?.toString() ?? '/';
+  // 로그인 성공시 페이지 이동 - redurectUrl이 있다면 그 주소로 이동 아니면 메인페이지(/)로 이동
+  const redirectUrl = formData.get('redirectUrl')?.toString()
 
   redirect(redirectUrl ? redirectUrl : '/')
 }
 
 /**
  * 로그인한 회원 정보를 조회
- *  - 요청 헤더 Authorization: Bearer 토큰
+ *   - 요청 헤더 Authorization: Bearer 토큰
  */
 export async function getLoggedMember() {
-    try {
-        const cookie = await cookies()
-        const token = cookie.get('token')?.value
-        if (!token) return;
-        
-        const apiUrl = `${process.env.API_URL}/member`
-        const res = await fetch(apiUrl, {
-            method: 'GET',
-            headers: {
-                Authorization: `Bearer ${token}`
-            }
-        });
-
-        if (res.status !== 200) {
-            return await res.json()
-        }
-
-    } catch (err) {
-        console.log("getLoggedMember() error:", err)
-    }
-
-    // 토큰이 만료 되었거나 이상이 있는 경우 - 쿠키 제거
+  try {
     const cookie = await cookies()
-    cookie.delete('token')
+    const token = cookie.get('token')?.value
+    if (!token) return
+
+    const apiUrl = `${process.env.API_URL}/member`
+    const res = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      next: {
+        tags: ['loggedMember'],
+      },
+    })
+
+    if (res.status === 200) {
+      return await res.json()
+    }
+  } catch (err) {
+    console.log('getLoggedMember() error:', err)
+  }
 }
